@@ -3,11 +3,11 @@
   hosts: localhost
   connection: local
   become: true
+  vars_files:
+    - vault.yml
   vars:
     jenkins_url_host: "http://localhost:8080"
     jenkins_url_agent: "http://jenkins-master:8080"
-    jenkins_user: "arefin"
-    jenkins_password: "Kratos7war!?"
     agent_name: "agent3"
     agent_home: "/home/jenkins/agent"
     agent_image: "jenkins/inbound-agent:latest"
@@ -105,27 +105,19 @@
       set_fact:
         agent_secret: "{{ agent_jnlp.content | regex_search('<argument>(.*?)</argument>', '\\1') }}"
 
-    #- name: Launch Jenkins agent container
-     # community.docker.docker_container:
-      #  name: "{{ agent_name }}"
-       # image: "{{ agent_image }}"
-        #state: started
-        #restart_policy: unless-stopped
-        #network_mode: "host"
-        #env:
-         # JENKINS_URL: "http://localhost:8080" #"{{ jenkins_url }}"
-          #JENKINS_AGENT_NAME: "{{ agent_name }}"
-          #JENKINS_SECRET: "{{ agent_secret | string}}"
-        #networks:
-         # - name: jenkins_net
-        #volumes:
-         # - /var/run/docker.sock:/var/run/docker.sock
-    - name: Launch Jenkins agent container with docker run
-      ansible.builtin.shell: |
-        docker run -d \
-          --name {{ agent_name }}-test \
-          --network host \
-          -e JENKINS_URL=http://localhost:8080 \
-          -e JENKINS_AGENT_NAME={{ agent_name }} \
-          -e JENKINS_SECRET=a419de078050f5253351764f44434ece9adfa1d765b4c3934cadaba43b6d5a28 \
-          {{ agent_image }}
+    - name: Launch Jenkins agent container
+      community.docker.docker_container:
+        name: "{{ agent_name }}"
+        image: "{{ agent_image }}"
+        state: started
+        restart_policy: unless-stopped
+        network_mode: "host"
+        env:
+          JENKINS_URL: "http://localhost:8080" #"{{ jenkins_url }}"
+          JENKINS_AGENT_NAME: "{{ agent_name }}"
+          JENKINS_SECRET: "{{ agent_secret | string}}"
+        networks:
+          - name: jenkins_net
+        volumes:
+          - /var/run/docker.sock:/var/run/docker.sock
+    
