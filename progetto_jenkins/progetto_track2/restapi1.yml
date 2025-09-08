@@ -1,0 +1,104 @@
+---
+- name: Provision Jenkins agent via REST API and Docker
+  hosts: localhost
+  connection: local
+  become: true
+  vars:
+    jenkins_url: "http://localhost:8080"
+    jenkins_user: "arefin"
+    jenkins_password: "Kratos7war!?"
+    agent_name: "agent2"
+    agent_home: "/home/jenkins/agent"
+    agent_image: "jenkins/inbound-agent:latest"
+
+  tasks:
+
+    - name: Ensure required tools are installed
+      package:
+        name: 
+          - jq
+          - libxml2
+        state: present
+
+    - name: Obtain Jenkins crumb and save cookies
+      shell: >
+        curl -s -c /tmp/jenkins_cookies.txt
+        -u '{{ jenkins_user }}:{{ jenkins_password }}'
+        '{{ jenkins_url }}/crumbIssuer/api/json' | jq -r '.crumb'
+      register: jenkins_crumb
+
+    - debug:
+        var: jenkins_crumb.stdout
+
+    - name: Generate Jenkins API token
+      shell: >
+        curl -s -b /tmp/jenkins_cookies.txt
+        -u '{{ jenkins_user }}:{{ jenkins_password }}'
+        -H "Jenkins-Crumb: {{ jenkins_crumb.stdout }}"
+        -d "newTokenName=ansibleToken_{{ agent_name }}"
+        '{{ jenkins_url }}/me/descriptorByName/jenkins.security.ApiTokenProperty/generateNewToken'
+      register: api_token_response
+
+    - debug:
+        var: api_token_response.stdout
+
+    - name: Extract token value
+      set_fact:
+        jenkins_token: "{{ api_token_response.stdout | from_json | json_query('data.tokenValue') }}"
+
+    - debug:
+        var: jenkins_token
+
+    - name: Define Groovy script for agent creation
+      set_fact:
+        agent_script: |
+          import jenkins.model.*
+          import hudson.model.*
+          import hudson.slaves.*
+
+          def slaveName = "{{ agent_name }}"
+          def remoteFS = "{{ agent_home }}"
+          def numExecutors = 1
+          def nodeDescription = "My Agent"
+          def labels = ""
+          def mode = Node.Mode.EXCLUSIVE
+
+          def jenkins = Jenkins.instance
+          def slave = new DumbSlave(slaveName,nodeDescription,remoteFS,numExecutors.toString(),mode,labels,new JNLPLauncher(),new RetentionStrategy.Always(),[])
+          jenkins.addNode(slave)
+          println("Agent created: ${slaveName}")
+
+    - name: Create Jenkins agent node via script API
+      shell: >
+        curl -s -X POST
+        -u "{{ jenkins_user }}:{{ jenkins_token }}"
+        -H "Jenkins-Crumb: {{ jenkins_crumb.stdout }}"
+        --data-urlencode "script={{ agent_script }}"
+        '{{ jenkins_url }}/scriptText'
+      register: create_agent
+
+    - debug:
+        var: create_agent.stdout
+
+    - name: Get Jenkins agent secret
+      shell: >
+        curl -s -u "{{ jenkins_user }}:{{ jenkins_token }}"
+        '{{ jenkins_url }}/computer/{{ agent_name }}/jenkins-agent.jnlp' |
+        xmllint --xpath 'string(//application-desc/argument[1])' -
+      register: agent_secret
+
+    - debug:
+        var: agent_secret.stdout
+
+    - name: Launch Jenkins agent container
+      community.docker.docker_container:
+        name: "{{ agent_name }}"
+        image: "{{ agent_image }}"
+        state: started
+        restart_policy: unless-stopped
+        env:
+          JENKINS_URL: "{{ jenkins_url }}"
+          JENKINS_AGENT_NAME: "{{ agent_name }}"
+          JENKINS_SECRET: "{{ agent_secret.stdout }}"
+        volumes:
+          - /var/run/docker.sock:/var/run/docker.sock

@@ -1,0 +1,131 @@
+---
+- name: Provision Jenkins agent via REST API and Docker (URI version)
+  hosts: localhost
+  connection: local
+  become: true
+  vars:
+    jenkins_url_host: "http://localhost:8080"
+    jenkins_url_agent: "http://jenkins-master:8080"
+    jenkins_user: "arefin"
+    jenkins_password: "Kratos7war!?"
+    agent_name: "agent3"
+    agent_home: "/home/jenkins/agent"
+    agent_image: "jenkins/inbound-agent:latest"
+
+  tasks:
+
+    - name: Get Jenkins crumb
+      ansible.builtin.uri:
+        url: "{{ jenkins_url_host }}/crumbIssuer/api/json"
+        method: GET
+        user: "{{ jenkins_user }}"
+        password: "{{ jenkins_password }}"
+        force_basic_auth: true
+        return_content: true
+        status_code: 200
+      register: crumb_response
+
+    - name: Save crumb and cookie
+      set_fact:
+        jenkins_crumb: "{{ crumb_response.json.crumb }}"
+        jenkins_cookie: "{{ crumb_response.cookies_string }}"
+
+    - name: Generate Jenkins API token
+      ansible.builtin.uri:
+        url: "{{ jenkins_url_host }}/me/descriptorByName/jenkins.security.ApiTokenProperty/generateNewToken"
+        method: POST
+        user: "{{ jenkins_user }}"
+        password: "{{ jenkins_password }}"
+        force_basic_auth: true
+        headers:
+          Jenkins-Crumb: "{{ jenkins_crumb }}"
+          Cookie: "{{ jenkins_cookie }}"
+        body_format: form-urlencoded
+        body:
+          newTokenName: "ansibleToken_{{ agent_name }}"
+        return_content: true
+        status_code: 200
+      register: api_token_response
+
+    - name: Extract token
+      set_fact:
+        jenkins_token: "{{ api_token_response.json.data.tokenValue }}"
+
+    - name: Define Groovy script for agent creation
+      set_fact:
+        agent_script: |
+          import jenkins.model.*
+          import hudson.model.*
+          import hudson.slaves.*
+
+          def slaveName = "{{ agent_name }}"
+          def remoteFS = "{{ agent_home }}"
+          def numExecutors = 1
+          def nodeDescription = "My Agent"
+          def labels = ""
+          def mode = Node.Mode.EXCLUSIVE
+
+          def jenkins = Jenkins.instance
+          if (jenkins.getNode(slaveName) == null) {
+              def slave = new DumbSlave(slaveName,nodeDescription,remoteFS,numExecutors.toString(),mode,labels,new JNLPLauncher(),new RetentionStrategy.Always(),[])
+              jenkins.addNode(slave)
+              println("Agent created: ${slaveName}")
+          } else {
+              println("Agent ${slaveName} already exists")
+          }
+
+    - name: Create Jenkins agent node via script API
+      ansible.builtin.uri:
+        url: "{{ jenkins_url_host }}/scriptText"
+        method: POST
+        user: "{{ jenkins_user }}"
+        password: "{{ jenkins_token }}"
+        force_basic_auth: true
+        headers:
+          Jenkins-Crumb: "{{ jenkins_crumb }}"
+        body_format: form-urlencoded
+        body:
+          script: "{{ agent_script }}"
+        return_content: true
+        status_code: 200
+      register: create_agent
+
+    - name: Get Jenkins agent secret
+      ansible.builtin.uri:
+        url: "{{ jenkins_url_host }}/computer/{{ agent_name }}/jenkins-agent.jnlp"
+        method: GET
+        user: "{{ jenkins_user }}"
+        password: "{{ jenkins_token }}"
+        force_basic_auth: true
+        return_content: true
+        status_code: 200
+      register: agent_jnlp
+
+    - name: Extract agent secret
+      set_fact:
+        agent_secret: "{{ agent_jnlp.content | regex_search('<argument>(.*?)</argument>', '\\1') }}"
+
+    #- name: Launch Jenkins agent container
+     # community.docker.docker_container:
+      #  name: "{{ agent_name }}"
+       # image: "{{ agent_image }}"
+        #state: started
+        #restart_policy: unless-stopped
+        #network_mode: "host"
+        #env:
+         # JENKINS_URL: "http://localhost:8080" #"{{ jenkins_url }}"
+          #JENKINS_AGENT_NAME: "{{ agent_name }}"
+          #JENKINS_SECRET: "{{ agent_secret | string}}"
+        #networks:
+         # - name: jenkins_net
+        #volumes:
+         # - /var/run/docker.sock:/var/run/docker.sock
+    - name: Launch Jenkins agent container with docker run
+      ansible.builtin.shell: |
+        docker run -d \
+          --name {{ agent_name }}-test \
+          --network host \
+          -e JENKINS_URL=http://localhost:8080 \
+          -e JENKINS_AGENT_NAME={{ agent_name }} \
+          -e JENKINS_SECRET=a419de078050f5253351764f44434ece9adfa1d765b4c3934cadaba43b6d5a28 \
+          {{ agent_image }}

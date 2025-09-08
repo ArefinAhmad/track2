@@ -1,0 +1,4 @@
+Host rocky9
+  HostName 192.168.50.111
+  User vagrant
+  IdentityFile ~/.vagrant.d/insecure_private_key

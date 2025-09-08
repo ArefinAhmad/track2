@@ -1,0 +1,44 @@
+---
+- name: Deploy Jenkins Agent via Docker
+  hosts: all
+  become: true
+  vars:
+    jenkins_master_ip: "172.30.0.10"
+    jenkins_agent_name: "agent1"
+    jenkins_agent_secret: "aac692427a76f842690dd24f09ee2910eacab29837ed8bfdfd07219efa9ccdd0"
+    jenkins_agent_image: "arefinahmad/jenkins-agent-with-docker:latest"
+    agent_container_name: "jenkins-agent"
+    agent_static_ip: "172.30.0.11"
+    docker_network_name: "jenkins_net"
+
+  tasks:
+    - name: Ensure Docker network exists
+      community.docker.docker_network:
+        name: jenkins_net
+        state: present
+        ipam_config:
+          - subnet: 172.30.0.0/24
+            gateway: 172.30.0.1
+        # driver: bridge
+        # environment:
+        # DOCKER_HOST: unix:///var/run/docker.sock
+
+
+    - name: Ensure Jenkins agent container is running
+      community.docker.docker_container:
+        name: "{{ agent_container_name }}"
+        image: jenkins-agent:latest
+        state: started
+        restart_policy: unless-stopped
+        pull: no                       
+        env:
+          JENKINS_URL: "http://{{ jenkins_master_ip }}:8080"
+          JENKINS_SECRET: aac692427a76f842690dd24f09ee2910eacab29837ed8bfdfd07219efa9ccdd0
+          JENKINS_AGENT_NAME: agent1
+        volumes:
+          - /usr/bin/docker:/usr/bin/docker
+          - /var/run/docker.sock:/var/run/docker.sock
+        user: root
+        networks:
+          - name: "{{ docker_network_name }}"
+            ipv4_address: "{{ agent_static_ip }}"

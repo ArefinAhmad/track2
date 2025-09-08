@@ -1,0 +1,53 @@
+---
+- name: Installazione Docker su Rocky Linux
+  hosts: targets
+  become: true
+  tasks:
+
+    - name: Disinstalla vecchie versioni di Docker (se presenti)
+      yum:
+        name:
+          - docker
+          - docker-client
+          - docker-client-latest
+          - docker-common
+          - docker-latest
+          - docker-latest-logrotate
+          - docker-logrotate
+          - docker-engine
+        state: absent
+
+    - name: Installa dipendenze necessarie
+      yum:
+        name:
+          - yum-utils
+          - device-mapper-persistent-data
+          - lvm2
+        state: present
+
+    - name: Aggiunge il repository ufficiale Docker
+      command: >
+        dnf config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+      args:
+        creates: /etc/yum.repos.d/docker-ce.repo
+
+    - name: Installa Docker Engine
+      yum:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-buildx-plugin
+        state: latest
+
+    - name: Abilita e avvia il servizio Docker
+      systemd:
+        name: docker
+        enabled: true
+        state: started
+
+    - name: Aggiungi l'utente vagrant al gruppo docker
+      user:
+        name: vagrant
+        groups: docker
+        append: yes

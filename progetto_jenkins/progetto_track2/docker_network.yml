@@ -1,0 +1,81 @@
+---
+- name: Configura Docker Network su Rocky Linux
+  hosts: all
+  become: true
+  tasks:
+
+    - name: Installa pip per Python 3
+      yum:
+        name: python3-pip
+        state: present
+
+    - name: Installa il modulo Python 'requests'
+      pip:
+        name: requests
+        executable: pip3
+
+    - name: Crea una network semplice
+      community.docker.docker_network:
+        name: network_one
+
+    - name: Aggiungi container alla network (solo se esistono)
+      community.docker.docker_network:
+        name: network_one
+        connected:
+          - container_a
+          - container_b
+          - container_c
+        state: present
+
+    - name: Aggiungi un container lasciando gli altri connessi
+      community.docker.docker_network:
+        name: network_one
+        connected:
+          - container_a
+        appends: yes
+
+    - name: Crea network con driver options
+      community.docker.docker_network:
+        name: network_two
+        driver_options:
+          com.docker.network.bridge.name: net2
+
+    - name: Crea network con configurazione IPAM personalizzata
+      community.docker.docker_network:
+        name: network_three
+        ipam_config:
+          - subnet: 172.3.27.0/24
+            gateway: 172.3.27.2
+            iprange: 172.3.27.0/26
+            aux_addresses:
+              host1: 172.3.27.3
+              host2: 172.3.27.4
+
+    - name: Crea network con etichette
+      community.docker.docker_network:
+        name: network_four
+        labels:
+          key1: value1
+          key2: value2
+
+    - name: Crea network con IPv6
+      community.docker.docker_network:
+        name: network_ipv6_one
+        enable_ipv6: yes
+        ipam_config:
+          - subnet: fdd1:ac8c:0557:7ce1::/64
+
+    - name: Crea network con IPv4 e IPv6
+      community.docker.docker_network:
+        name: network_ipv6_two
+        enable_ipv6: yes
+        ipam_config:
+          - subnet: 172.4.27.0/24
+          - subnet: fdd1:ac8c:0557:7ce2::/64
+
+    - name: (Facoltativo) Elimina una network
+      community.docker.docker_network:
+        name: network_one
+        state: absent
+        force: yes
+

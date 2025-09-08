@@ -1,0 +1,39 @@
+---
+- name: Installazione di Jenkins Master su Docker con IP statico
+  hosts: all
+  become: true
+  tasks:
+
+    - name: Assicurati che l'immagine Jenkins sia presente
+      community.docker.docker_image:
+        name: jenkins/jenkins
+        tag: lts
+        source: pull
+
+    - name: Crea una rete Docker dedicata a Jenkins
+      community.docker.docker_network:
+        name: jenkins_net
+        ipam_config:
+          - subnet: 172.30.0.0/24
+            gateway: 172.30.0.1
+
+    - name: Avvia il container Jenkins con IP statico
+      community.docker.docker_container:
+        name: jenkins-master
+        image: jenkins/jenkins:lts
+        state: started
+        restart_policy: unless-stopped
+        networks:
+          - name: jenkins_net
+            ipv4_address: 172.30.0.10
+        published_ports:
+          - "8080:8080"
+          - "50000:50000"
+        volumes:
+          - jenkins_home:/var/jenkins_home
+          - /var/run/docker.sock:/var/run/docker.sock
+          - /usr/bin/docker:/usr/bin/docker 
+    - name: Crea volume persistente per Jenkins (se non esiste)
+      community.docker.docker_volume:
+        name: jenkins_home
+
